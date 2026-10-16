@@ -48,7 +48,7 @@ jobs:
           APP='build/Build/Products/Release-iphoneos/NutritionDiary.app'
           test -f "$APP/NutritionDiary"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleSupportedPlatforms:0' "$APP/Info.plist")" = 'iPhoneOS'
-          xcrun lipo -verify_arch arm64 "$APP/NutritionDiary"
+          xcrun lipo "$APP/NutritionDiary" -verify_arch arm64
           mkdir -p package/Payload
           ditto "$APP" package/Payload/NutritionDiary.app
           ditto -c -k --keepParent package/Payload NutritionDiary-unsigned.ipa
