@@ -1,0 +1,68 @@
+name: Build unsigned iPhone IPA
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'NutritionDiary/**'
+      - 'NutritionDiaryTests/**'
+      - 'NutritionDiary.xcodeproj/**'
+      - '.github/workflows/unsigned-ipa.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Choose installed iPhone simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import sys,json; d=json.load(sys.stdin); print(next(x["udid"] for v in d["devices"].values() for x in v if x["name"].startswith("iPhone")))')
+          echo "DEVICE_ID=$DEVICE_ID" >> "$GITHUB_ENV"
+      - name: Test native project before packaging
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -project NutritionDiary.xcodeproj -scheme NutritionDiary \
+            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+            -resultBundlePath TestResults.xcresult CODE_SIGNING_ALLOWED=NO test
+      - name: Build for physical iPhone without signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -project NutritionDiary.xcodeproj \
+            -scheme NutritionDiary -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY='' \
+            build
+      - name: Package and validate unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP='build/Build/Products/Release-iphoneos/NutritionDiary.app'
+          test -f "$APP/NutritionDiary"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleSupportedPlatforms:0' "$APP/Info.plist")" = 'iPhoneOS'
+          xcrun lipo -verify_arch arm64 "$APP/NutritionDiary"
+          mkdir -p package/Payload
+          ditto "$APP" package/Payload/NutritionDiary.app
+          ditto -c -k --keepParent package/Payload NutritionDiary-unsigned.ipa
+          unzip -t NutritionDiary-unsigned.ipa
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NutritionDiary-unsigned-iPhone-IPA
+          path: NutritionDiary-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-test-results
+          path: TestResults.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
